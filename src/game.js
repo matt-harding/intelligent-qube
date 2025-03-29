@@ -48,7 +48,7 @@ export class Game {
         this.playerSpeed = 0.08; // Reduced from 0.15 to 0.08 for slower player movement
 
         // Setup camera position to see more of the stage
-        this.camera.position.set(0, 20, 35); // Moved back and up for better view
+        this.camera.position.set(15, 20, 35); // Moved right, back and up for better view
         this.camera.lookAt(0, 0, 0);
 
         // Lighting
@@ -88,6 +88,7 @@ export class Game {
     createPlayer() {
         // Create a group to hold all player parts
         this.player = new THREE.Group();
+        this.lastDirection = 'down'; // Track player direction
 
         // Body material
         const bodyMaterial = new THREE.MeshPhongMaterial({ 
@@ -106,67 +107,169 @@ export class Game {
             emissiveIntensity: 0.1
         });
 
-        // Head
-        const head = new THREE.Mesh(
-            new THREE.BoxGeometry(0.3, 0.3, 0.3),
-            headMaterial
-        );
-        head.position.y = 0.8;
-        head.castShadow = true;
+        // Create body parts with names for easy reference
+        this.playerParts = {
+            head: new THREE.Mesh(
+                new THREE.BoxGeometry(0.3, 0.3, 0.3),
+                headMaterial
+            ),
+            body: new THREE.Mesh(
+                new THREE.BoxGeometry(0.4, 0.6, 0.2),
+                bodyMaterial
+            ),
+            leftLeg: new THREE.Mesh(
+                new THREE.BoxGeometry(0.15, 0.4, 0.15),
+                pantsMaterial
+            ),
+            rightLeg: new THREE.Mesh(
+                new THREE.BoxGeometry(0.15, 0.4, 0.15),
+                pantsMaterial
+            ),
+            leftArm: new THREE.Mesh(
+                new THREE.BoxGeometry(0.12, 0.4, 0.12),
+                bodyMaterial
+            ),
+            rightArm: new THREE.Mesh(
+                new THREE.BoxGeometry(0.12, 0.4, 0.12),
+                bodyMaterial
+            )
+        };
 
-        // Body
-        const body = new THREE.Mesh(
-            new THREE.BoxGeometry(0.4, 0.6, 0.2),
-            bodyMaterial
-        );
-        body.position.y = 0.4;
-        body.castShadow = true;
+        // Set initial positions
+        this.playerParts.head.position.y = 0.8;
+        this.playerParts.body.position.y = 0.4;
+        this.playerParts.leftLeg.position.set(-0.1, 0.2, 0);
+        this.playerParts.rightLeg.position.set(0.1, 0.2, 0);
+        this.playerParts.leftArm.position.set(-0.26, 0.4, 0);
+        this.playerParts.rightArm.position.set(0.26, 0.4, 0);
 
-        // Legs
-        const leftLeg = new THREE.Mesh(
-            new THREE.BoxGeometry(0.15, 0.4, 0.15),
-            pantsMaterial
-        );
-        leftLeg.position.set(-0.1, 0.2, 0);
-        leftLeg.castShadow = true;
-
-        const rightLeg = new THREE.Mesh(
-            new THREE.BoxGeometry(0.15, 0.4, 0.15),
-            pantsMaterial
-        );
-        rightLeg.position.set(0.1, 0.2, 0);
-        rightLeg.castShadow = true;
-
-        // Arms
-        const leftArm = new THREE.Mesh(
-            new THREE.BoxGeometry(0.12, 0.4, 0.12),
-            bodyMaterial
-        );
-        leftArm.position.set(-0.26, 0.4, 0);
-        leftArm.castShadow = true;
-
-        const rightArm = new THREE.Mesh(
-            new THREE.BoxGeometry(0.12, 0.4, 0.12),
-            bodyMaterial
-        );
-        rightArm.position.set(0.26, 0.4, 0);
-        rightArm.castShadow = true;
+        // Enable shadows
+        Object.values(this.playerParts).forEach(part => {
+            part.castShadow = true;
+        });
 
         // Add all parts to the player group
-        this.player.add(head);
-        this.player.add(body);
-        this.player.add(leftLeg);
-        this.player.add(rightLeg);
-        this.player.add(leftArm);
-        this.player.add(rightArm);
+        Object.values(this.playerParts).forEach(part => {
+            this.player.add(part);
+        });
 
-        // Set initial position (y=0 to stand on surface)
+        // Set initial position
         this.player.position.set(0.5, 0, this.rows/2 - 1.5);
         this.player.castShadow = true;
         this.player.receiveShadow = true;
 
         // Add the player to the scene
         this.scene.add(this.player);
+    }
+
+    updatePlayerDirection(newX, newZ, currentX, currentZ) {
+        if (!this.playerParts) return;
+
+        let direction = this.lastDirection;
+        const dx = newX - currentX;
+        const dz = newZ - currentZ;
+
+        // Determine direction based on movement
+        if (Math.abs(dx) > Math.abs(dz)) {
+            // Horizontal movement is dominant
+            direction = dx > 0 ? 'right' : 'left';
+        } else if (Math.abs(dz) > 0) {
+            // Vertical movement is dominant
+            direction = dz > 0 ? 'down' : 'up';
+        }
+
+        if (direction !== this.lastDirection) {
+            // Update character appearance based on direction
+            switch (direction) {
+                case 'down':
+                    this.player.rotation.y = 0;
+                    this.playerParts.body.scale.z = 0.2;
+                    this.playerParts.body.scale.x = 1;
+                    break;
+                case 'up':
+                    this.player.rotation.y = Math.PI;
+                    this.playerParts.body.scale.z = 0.2;
+                    this.playerParts.body.scale.x = 1;
+                    break;
+                case 'left':
+                    this.player.rotation.y = -Math.PI / 2;
+                    this.playerParts.body.scale.z = 1;
+                    this.playerParts.body.scale.x = 0.2;
+                    break;
+                case 'right':
+                    this.player.rotation.y = Math.PI / 2;
+                    this.playerParts.body.scale.z = 1;
+                    this.playerParts.body.scale.x = 0.2;
+                    break;
+            }
+            this.lastDirection = direction;
+        }
+    }
+
+    updatePlayer() {
+        if (this.isGameOver) return;
+
+        const currentX = this.player.position.x;
+        const currentZ = this.player.position.z;
+        let newX = currentX;
+        let newZ = currentZ;
+
+        // Allow smooth movement in all directions
+        if (this.keys.w) {
+            newZ -= this.playerSpeed; // Move up
+        }
+        if (this.keys.s) {
+            newZ += this.playerSpeed; // Move down
+        }
+        if (this.keys.a) {
+            newX -= this.playerSpeed; // Move left
+        }
+        if (this.keys.d) {
+            newX += this.playerSpeed; // Move right
+        }
+
+        // Keep player within bounds and aligned to grid
+        newX = Math.max(-this.cols/2 + 0.5, Math.min(this.cols/2 - 0.5, newX));
+        newZ = Math.max(-this.rows/2 + 0.5, Math.min(this.rows/2 - 0.5, newZ));
+
+        // Check for collision with stationary cubes
+        const wouldCollide = this.cubes.some(cube => {
+            if (this.rollingCubes.has(cube)) return false; // Ignore rolling cubes
+            const cubePos = cube.getPosition();
+            
+            // Calculate the grid positions
+            const playerGridX = Math.round(newX - 0.5) + 0.5;
+            const playerGridZ = Math.round(newZ - 0.5) + 0.5;
+            const cubeGridX = Math.round(cubePos.x - 0.5) + 0.5;
+            const cubeGridZ = Math.round(cubePos.z - 0.5) + 0.5;
+            
+            // Check if they occupy the same grid cell
+            return playerGridX === cubeGridX && playerGridZ === cubeGridZ;
+        });
+
+        // If would collide, keep current position
+        if (!wouldCollide) {
+            // Update direction before moving
+            this.updatePlayerDirection(newX, newZ, currentX, currentZ);
+
+            // Update position (keep y at 0 to stay on surface)
+            this.playerPosition.x = newX;
+            this.playerPosition.z = newZ;
+            this.player.position.set(newX, 0, newZ);
+        }
+
+        // Check if any rolling cube has rolled onto the player
+        const playerKey = `${Math.round(this.player.position.x - 0.5) + 0.5},${Math.round(this.player.position.z - 0.5) + 0.5}`;
+        const isPlayerCrushed = this.cubes.some(cube => {
+            if (!this.rollingCubes.has(cube)) return false; // Only check rolling cubes
+            const cubePos = cube.getPosition();
+            const cubeKey = `${Math.round(cubePos.x - 0.5) + 0.5},${Math.round(cubePos.z - 0.5) + 0.5}`;
+            return cubeKey === playerKey;
+        });
+
+        if (isPlayerCrushed) {
+            this.handlePlayerDeath();
+        }
     }
 
     initStage() {
@@ -223,7 +326,8 @@ export class Game {
             's': false,
             'd': false,
             ' ': false,  // Space key
-            'enter': false
+            'enter': false,
+            'delete': false
         };
 
         this.lastKeyPress = 0;
@@ -234,8 +338,8 @@ export class Game {
             if (this.keys.hasOwnProperty(key)) {
                 this.keys[key] = true;
                 
-                // Only apply delay to space and enter keys
-                if (key === ' ' || key === 'enter') {
+                // Only apply delay to space, enter, and delete keys
+                if (key === ' ' || key === 'enter' || key === 'delete') {
                     const now = Date.now();
                     if (now - this.lastKeyPress > KEY_DELAY) {
                         this.lastKeyPress = now;
@@ -244,6 +348,10 @@ export class Game {
                             this.toggleMark();
                         } else if (key === 'enter') {
                             this.clearMarkedCells();
+                        } else if (key === 'delete') {
+                            if (this.advantageSpots.size > 0) {
+                                this.triggerAllAdvantageSpots();
+                            }
                         }
                     }
                 }
@@ -302,17 +410,18 @@ export class Game {
         // Get the player's current grid position
         const playerX = Math.floor(this.player.position.x);
         const playerZ = Math.floor(this.player.position.z);
-        const gridX = playerX + 0.5; //const gridX = playerX + 0.5;
-        const gridZ = playerZ;//const gridZ = playerZ + 0.5;
+        const gridX = playerX + 0.5;
+        const gridZ = playerZ;
         const key = `${gridX},${gridZ}`;
 
-        // Only allow marking if there's no other marked cell
+        // Don't allow marking if there's already a mark
         if (this.markedCells.size > 0) {
             // Remove existing mark
             for (const [_, marker] of this.markedCells) {
                 this.scene.remove(marker);
             }
             this.markedCells.clear();
+            return;
         }
 
         // Add new mark
@@ -354,6 +463,119 @@ export class Game {
             }
         };
         animate();
+    }
+
+    triggerAllAdvantageSpots() {
+        if (this.advantageSpots.size === 0) return;
+
+        // Store all spots to trigger
+        const spotsToTrigger = Array.from(this.advantageSpots.keys());
+        
+        // Process each spot in sequence
+        for (const key of spotsToTrigger) {
+            this.triggerAdvantageSpot(key);
+        }
+    }
+
+    triggerAdvantageSpot(key) {
+        const [centerX, centerZ] = key.split(',').map(Number);
+        let pointsGained = 0;
+        const cubesCleared = [];
+        const cellsToAnimate = new Set();
+        let hasForbiddenCube = false;
+
+        // Check for cubes in the 3x3 area
+        this.cubes.forEach(cube => {
+            const pos = cube.getPosition();
+            const dx = Math.abs(Math.floor(pos.x) + 0.5 - centerX);
+            const dz = Math.abs(Math.floor(pos.z) - centerZ);
+            
+            if (dx <= 1 && dz <= 1) {
+                if (cube.type === 'forbidden') {
+                    hasForbiddenCube = true;
+                } else {
+                    cubesCleared.push(cube);
+                    pointsGained += 200; // Higher points for advantage area clears
+                }
+                const key = `${Math.floor(pos.x) + 0.5},${Math.floor(pos.z)}`;
+                cellsToAnimate.add(key);
+            }
+        });
+
+        // If there's a forbidden cube, don't clear anything and penalize
+        if (hasForbiddenCube) {
+            this.handleForbiddenCube();
+            return;
+        }
+
+        // Clear the cubes
+        cubesCleared.forEach(cube => {
+            this.createClearEffect(cube.getPosition());
+            this.scene.remove(cube.mesh);
+            
+            // If we clear another advantage cube, create its marker
+            if (cube.type === 'advantage') {
+                const pos = cube.getPosition();
+                const alignedX = Math.floor(pos.x) + 0.5;
+                const alignedZ = Math.floor(pos.z);
+                this.createAdvantageMarker(alignedX, alignedZ);
+            }
+        });
+
+        // Update cubes array
+        this.cubes = this.cubes.filter(cube => !cubesCleared.includes(cube));
+
+        // Create clear animations
+        cellsToAnimate.forEach(key => {
+            const [x, z] = key.split(',').map(Number);
+            this.createClearAnimation({ x, z });
+        });
+
+        // Remove the triggered advantage spot
+        const markers = this.advantageSpots.get(key);
+        markers.forEach(marker => this.scene.remove(marker));
+        this.advantageSpots.delete(key);
+
+        // Update score
+        if (pointsGained > 0) {
+            this.score += pointsGained;
+            this.updateUI();
+            this.flashScore();
+        }
+    }
+
+    createAdvantageMarker(x, z) {
+        const key = `${x},${z}`;
+        const markers = [];
+
+        // Create 3x3 grid of markers
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                const markerX = x + dx;
+                const markerZ = z + dz;
+                
+                // Skip if outside stage bounds
+                if (markerX < -this.cols/2 || markerX > this.cols/2 ||
+                    markerZ < -this.rows/2 || markerZ > this.rows/2) {
+                    continue;
+                }
+
+                const markerGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
+                const markerMaterial = new THREE.MeshPhongMaterial({
+                    color: 0x00ff00,
+                    transparent: true,
+                    opacity: 0.7,
+                    emissive: 0x00ff00,
+                    emissiveIntensity: 0.5
+                });
+                const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+                marker.position.set(markerX, 0.01, markerZ);
+                this.scene.add(marker);
+                markers.push(marker);
+            }
+        }
+
+        this.advantageSpots.set(key, markers);
     }
 
     updateUI() {
@@ -437,61 +659,45 @@ export class Game {
         const cubesCleared = [];
         const cellsToAnimate = new Set();
 
-        // Check normal marked cells
+        // Check marked cells
         this.cubes.forEach(cube => {
             const pos = cube.getPosition();
             const key = `${Math.floor(pos.x) + 0.5},${Math.floor(pos.z)}`;
             
-            // Check if cube is on a marked cell or in a 3x3 advantage area
-            const isOnMarkedCell = this.markedCells.has(key);
-            const isInAdvantageArea = Array.from(this.advantageSpots.keys()).some(areaKey => {
-                const [centerX, centerZ] = areaKey.split(',').map(Number);
-                const dx = Math.abs(Math.floor(pos.x) + 0.5 - centerX);
-                const dz = Math.abs(Math.floor(pos.z) - centerZ);
-                return dx <= 1 && dz <= 1;
-            });
-
-            if (isOnMarkedCell || isInAdvantageArea) {
+            if (this.markedCells.has(key)) {
                 if (cube.type === 'forbidden') {
                     this.handleForbiddenCube();
                     cubesCleared.push(cube);
                     cellsToAnimate.add(key);
                 } else {
                     cubesCleared.push(cube);
-                    pointsGained += isInAdvantageArea ? 200 : 100;
+                    pointsGained += 100;
                     cellsToAnimate.add(key);
                     
-                    if (cube.type === 'advantage' && isOnMarkedCell) {
+                    // If we clear an advantage cube, create its marker
+                    if (cube.type === 'advantage') {
                         const alignedX = Math.floor(pos.x) + 0.5;
                         const alignedZ = Math.floor(pos.z);
-                        this.mark3x3Area(alignedX, alignedZ);
-                        
-                        // Add 3x3 area to animation
-                        for (let x = -1; x <= 1; x++) {
-                            for (let z = -1; z <= 1; z++) {
-                                const areaKey = `${alignedX + x},${alignedZ + z}`;
-                                cellsToAnimate.add(areaKey);
-                            }
-                        }
+                        this.createAdvantageMarker(alignedX, alignedZ);
                     }
                 }
             }
         });
 
-        // Create clear animations for all affected cells
-        cellsToAnimate.forEach(key => {
-            const [x, z] = key.split(',').map(Number);
-            this.createClearAnimation({ x, z });
-        });
-
-        // Remove cleared cubes with effect
+        // Remove cleared cubes
         cubesCleared.forEach(cube => {
             this.createClearEffect(cube.getPosition());
             this.scene.remove(cube.mesh);
         });
         
-        // Update cubes array after clearing
+        // Update cubes array
         this.cubes = this.cubes.filter(cube => !cubesCleared.includes(cube));
+
+        // Create clear animations
+        cellsToAnimate.forEach(key => {
+            const [x, z] = key.split(',').map(Number);
+            this.createClearAnimation({ x, z });
+        });
 
         // Update score
         if (pointsGained > 0) {
@@ -566,50 +772,6 @@ export class Game {
         if (stage) {
             stage.geometry.dispose();
             stage.geometry = new THREE.BoxGeometry(this.cols * this.cubeSize, 0.5, this.rows * this.cubeSize);
-        }
-    }
-
-    updatePlayer() {
-        if (this.isGameOver) return;
-
-        const currentX = this.player.position.x;
-        const currentZ = this.player.position.z;
-        let newX = currentX;
-        let newZ = currentZ;
-
-        // Allow smooth movement in all directions
-        if (this.keys.w) {
-            newZ -= this.playerSpeed; // Move up
-        }
-        if (this.keys.s) {
-            newZ += this.playerSpeed; // Move down
-        }
-        if (this.keys.a) {
-            newX -= this.playerSpeed; // Move left
-        }
-        if (this.keys.d) {
-            newX += this.playerSpeed; // Move right
-        }
-
-        // Keep player within bounds and aligned to grid
-        newX = Math.max(-this.cols/2 + 0.5, Math.min(this.cols/2 - 0.5, newX));
-        newZ = Math.max(-this.rows/2 + 0.5, Math.min(this.rows/2 - 0.5, newZ));
-
-        // Update position (keep y at 0 to stay on surface)
-        this.playerPosition.x = newX;
-        this.playerPosition.z = newZ;
-        this.player.position.set(newX, 0, newZ);
-
-        // Check if any cube has rolled onto the player
-        const playerKey = `${Math.round(this.player.position.x - 0.5) + 0.5},${Math.round(this.player.position.z - 0.5) + 0.5}`;
-        const isPlayerCrushed = this.cubes.some(cube => {
-            const cubePos = cube.getPosition();
-            const cubeKey = `${Math.round(cubePos.x - 0.5) + 0.5},${Math.round(cubePos.z - 0.5) + 0.5}`;
-            return cubeKey === playerKey;
-        });
-
-        if (isPlayerCrushed) {
-            this.handlePlayerDeath();
         }
     }
 
