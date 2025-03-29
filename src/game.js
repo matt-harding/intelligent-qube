@@ -22,6 +22,9 @@ export class Game {
         this.scoreElement = document.getElementById('score');
         this.rowsElement = document.getElementById('rows');
         
+        // Add controls UI
+        this.createControlsUI();
+        
         // Game state
         this.level = 1;
         this.score = 0;
@@ -473,74 +476,67 @@ export class Game {
         
         // Process each spot in sequence
         for (const key of spotsToTrigger) {
-            this.triggerAdvantageSpot(key);
-        }
-    }
+            const [centerX, centerZ] = key.split(',').map(Number);
+            let pointsGained = 0;
+            const cubesCleared = [];
+            const cellsToAnimate = new Set();
+            let forbiddenCount = 0;
 
-    triggerAdvantageSpot(key) {
-        const [centerX, centerZ] = key.split(',').map(Number);
-        let pointsGained = 0;
-        const cubesCleared = [];
-        const cellsToAnimate = new Set();
-        let hasForbiddenCube = false;
-
-        // Check for cubes in the 3x3 area
-        this.cubes.forEach(cube => {
-            const pos = cube.getPosition();
-            const dx = Math.abs(Math.floor(pos.x) + 0.5 - centerX);
-            const dz = Math.abs(Math.floor(pos.z) - centerZ);
-            
-            if (dx <= 1 && dz <= 1) {
-                if (cube.type === 'forbidden') {
-                    hasForbiddenCube = true;
-                } else {
-                    cubesCleared.push(cube);
-                    pointsGained += 200; // Higher points for advantage area clears
-                }
-                const key = `${Math.floor(pos.x) + 0.5},${Math.floor(pos.z)}`;
-                cellsToAnimate.add(key);
-            }
-        });
-
-        // If there's a forbidden cube, don't clear anything and penalize
-        if (hasForbiddenCube) {
-            this.handleForbiddenCube();
-            return;
-        }
-
-        // Clear the cubes
-        cubesCleared.forEach(cube => {
-            this.createClearEffect(cube.getPosition());
-            this.scene.remove(cube.mesh);
-            
-            // If we clear another advantage cube, create its marker
-            if (cube.type === 'advantage') {
+            // Check for cubes in the 3x3 area
+            this.cubes.forEach(cube => {
                 const pos = cube.getPosition();
-                const alignedX = Math.floor(pos.x) + 0.5;
-                const alignedZ = Math.floor(pos.z);
-                this.createAdvantageMarker(alignedX, alignedZ);
+                const cubeX = Math.round(pos.x - 0.5) + 0.5;
+                const cubeZ = Math.round(pos.z - 0.5) + 0.5;
+                const dx = Math.abs(cubeX - centerX);
+                const dz = Math.abs(cubeZ - centerZ);
+                
+                if (dx <= 1 && dz <= 1) {
+                    if (cube.type === 'forbidden') {
+                        forbiddenCount++;
+                    } else {
+                        pointsGained += 200;
+                    }
+                    cubesCleared.push(cube);
+                    cellsToAnimate.add(`${cubeX},${cubeZ}`);
+                }
+            });
+
+            // Apply forbidden cube penalties
+            for (let i = 0; i < forbiddenCount; i++) {
+                this.handleForbiddenCube();
             }
-        });
 
-        // Update cubes array
-        this.cubes = this.cubes.filter(cube => !cubesCleared.includes(cube));
+            // Clear the cubes
+            cubesCleared.forEach(cube => {
+                this.createClearEffect(cube.getPosition());
+                this.scene.remove(cube.mesh);
+                if (cube.marker) {
+                    this.scene.remove(cube.marker);
+                }
+            });
 
-        // Create clear animations
-        cellsToAnimate.forEach(key => {
-            const [x, z] = key.split(',').map(Number);
-            this.createClearAnimation({ x, z });
-        });
+            // Update cubes array
+            this.cubes = this.cubes.filter(cube => !cubesCleared.includes(cube));
 
-        // Remove the triggered advantage spot
-        const markers = this.advantageSpots.get(key);
-        markers.forEach(marker => this.scene.remove(marker));
-        this.advantageSpots.delete(key);
+            // Create clear animations
+            cellsToAnimate.forEach(key => {
+                const [x, z] = key.split(',').map(Number);
+                this.createClearAnimation({ x, z });
+            });
 
-        // Update score
-        if (pointsGained > 0) {
-            this.score += pointsGained;
-            this.updateUI();
-            this.flashScore();
+            // Remove the triggered advantage spot markers
+            const markers = this.advantageSpots.get(key);
+            if (markers) {
+                markers.forEach(marker => this.scene.remove(marker));
+            }
+            this.advantageSpots.delete(key);
+
+            // Update score
+            if (pointsGained > 0) {
+                this.score += pointsGained;
+                this.updateUI();
+                this.flashScore();
+            }
         }
     }
 
@@ -935,5 +931,40 @@ export class Game {
             this.updateCubes();
         }
         this.renderer.render(this.scene, this.camera);
+    }
+
+    createControlsUI() {
+        const controlsDiv = document.createElement('div');
+        controlsDiv.style.position = 'fixed';
+        controlsDiv.style.bottom = '20px';
+        controlsDiv.style.right = '20px';
+        controlsDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        controlsDiv.style.padding = '15px';
+        controlsDiv.style.borderRadius = '10px';
+        controlsDiv.style.color = 'white';
+        controlsDiv.style.fontFamily = 'monospace';
+        controlsDiv.style.fontSize = '14px';
+        controlsDiv.style.zIndex = '1000';
+
+        const controls = [
+            'Controls:',
+            'WASD - Move',
+            'SPACE - Mark/Unmark Cell',
+            'ENTER - Clear Marked Cells',
+            'DELETE - Trigger Green Areas'
+        ];
+
+        controls.forEach((text, index) => {
+            const line = document.createElement('div');
+            line.textContent = text;
+            if (index === 0) {
+                line.style.fontWeight = 'bold';
+                line.style.marginBottom = '5px';
+                line.style.borderBottom = '1px solid white';
+            }
+            controlsDiv.appendChild(line);
+        });
+
+        document.body.appendChild(controlsDiv);
     }
 } 
