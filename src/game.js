@@ -34,7 +34,7 @@ export class Game {
         this.cubes = [];
         this.gridCells = []; // Array of cell meshes
         this.moveTimer = 0;
-        this.moveInterval = 120; // Doubled the interval between cube movements
+        this.moveInterval = 180; // Increased from 120 to 180 frames to slow down cube movement
         this.isGameOver = false;
         this.currentWave = 0;
         this.wavesPerLevel = 4;
@@ -45,19 +45,20 @@ export class Game {
         this.playerMoveTimer = 0;
         this.playerMoveInterval = 150; // Add delay between player movements
         this.lastPlayerMove = { x: 0, z: 0 };
-        this.playerSpeed = 0.15; // Add player movement speed
+        this.playerSpeed = 0.08; // Reduced from 0.15 to 0.08 for slower player movement
 
         // Setup camera position to see more of the stage
-        this.camera.position.set(0, 15, 25);
+        this.camera.position.set(0, 20, 35); // Moved back and up for better view
         this.camera.lookAt(0, 0, 0);
 
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
         this.scene.add(ambientLight);
 
-        // Main directional light with shadows
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(-5, 15, 5);
+        // Main directional light with shadows - moved to back of stage
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        directionalLight.position.set(0, 15, -25); // Moved to back
+        directionalLight.target.position.set(0, 0, 0);
         directionalLight.castShadow = true;
         directionalLight.shadow.camera.left = -20;
         directionalLight.shadow.camera.right = 20;
@@ -67,6 +68,7 @@ export class Game {
         directionalLight.shadow.mapSize.width = 2048;
         directionalLight.shadow.mapSize.height = 2048;
         this.scene.add(directionalLight);
+        this.scene.add(directionalLight.target);
 
         // Initialize game
         this.initStage();
@@ -96,7 +98,7 @@ export class Game {
         this.stage.receiveShadow = true;
         this.scene.add(this.stage);
 
-        // Create grid cells
+        // Create grid cells with borders
         const cellGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
         const cellMaterial = new THREE.MeshPhongMaterial({
             color: 0x808080,
@@ -104,21 +106,33 @@ export class Game {
             opacity: 0.5
         });
 
+        // Adjust grid cell positions to align with cubes
         for (let z = -this.rows/2; z < this.rows/2; z++) {
             for (let x = -this.cols/2; x < this.cols/2; x++) {
                 const cell = new THREE.Mesh(cellGeometry, cellMaterial.clone());
-                cell.position.set(x + 0.5, 0, z + 0.5);
+                cell.position.set(x + 0.5, 0, z + 0.5); // Added 0.5 to align with cubes
                 cell.receiveShadow = true;
                 this.scene.add(cell);
                 this.gridCells.push(cell);
+
+                // Add border
+                const borderGeometry = new THREE.EdgesGeometry(cellGeometry);
+                const borderMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0x404040,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const border = new THREE.LineSegments(borderGeometry, borderMaterial);
+                border.position.copy(cell.position);
+                this.scene.add(border);
             }
         }
 
-        // Create player
+        // Create player and align with grid
         const playerGeometry = new THREE.BoxGeometry(this.cubeSize * 0.8, this.cubeSize * 1.5, this.cubeSize * 0.8);
         const playerMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFFFF });
         this.player = new THREE.Mesh(playerGeometry, playerMaterial);
-        this.player.position.set(0, 0.5, this.rows/2 - 2);
+        this.player.position.set(0.5, 0.5, this.rows/2 - 1.5); // Adjusted to align with grid
         this.player.castShadow = true;
         this.player.receiveShadow = true;
         this.scene.add(this.player);
@@ -183,15 +197,15 @@ export class Game {
 
         // Generate new wave based on level
         const numRows = Math.min(3 + this.level, 14);
-        const rowLength = Math.min(4 + this.level, 7);
+        const rowLength = this.cols; // Use full width of the stage
 
         for (let i = 0; i < numRows; i++) {
             for (let j = 0; j < rowLength; j++) {
                 const type = this.getRandomCubeType();
                 const cube = new Cube(type, {
-                    x: j - Math.floor(rowLength/2),
+                    x: j - Math.floor(rowLength/2) + 0.5, // Added 0.5 to align with grid
                     y: 0.5,
-                    z: -this.rows/2 - i // Start cubes at the top of the stage
+                    z: -this.rows/2 - i - 0.5 // Added 0.5 to align with grid
                 });
                 this.scene.add(cube.mesh);
                 this.cubes.push(cube);
@@ -207,8 +221,11 @@ export class Game {
     }
 
     toggleMark() {
-        const gridX = Math.round(this.player.position.x);
-        const gridZ = Math.round(this.player.position.z);
+        // Get the player's current grid position
+        const playerX = Math.floor(this.player.position.x);
+        const playerZ = Math.floor(this.player.position.z);
+        const gridX = playerX + 0.5; //const gridX = playerX + 0.5;
+        const gridZ = playerZ;//const gridZ = playerZ + 0.5;
         const key = `${gridX},${gridZ}`;
 
         // Only allow marking if there's no other marked cell
@@ -314,14 +331,14 @@ export class Game {
         // Check normal marked cells
         this.cubes.forEach(cube => {
             const pos = cube.getPosition();
-            const key = `${Math.round(pos.x)},${Math.round(pos.z)}`;
+            const key = `${Math.floor(pos.x) + 0.5},${Math.floor(pos.z)}`;
             
             // Check if cube is on a marked cell or in a 3x3 advantage area
             const isOnMarkedCell = this.markedCells.has(key);
             const isInAdvantageArea = Array.from(this.advantageSpots.keys()).some(areaKey => {
                 const [centerX, centerZ] = areaKey.split(',').map(Number);
-                const dx = Math.abs(Math.round(pos.x) - centerX);
-                const dz = Math.abs(Math.round(pos.z) - centerZ);
+                const dx = Math.abs(Math.floor(pos.x) + 0.5 - centerX);
+                const dz = Math.abs(Math.floor(pos.z) - centerZ);
                 return dx <= 1 && dz <= 1;
             });
 
@@ -333,7 +350,9 @@ export class Game {
                     pointsGained += isInAdvantageArea ? 200 : 100;
                     
                     if (cube.type === 'advantage' && isOnMarkedCell) {
-                        this.mark3x3Area(Math.round(pos.x), Math.round(pos.z));
+                        const alignedX = Math.floor(pos.x) + 0.5;
+                        const alignedZ = Math.floor(pos.z);
+                        this.mark3x3Area(alignedX, alignedZ);
                     }
                 }
             }
@@ -343,8 +362,10 @@ export class Game {
         cubesCleared.forEach(cube => {
             this.createClearEffect(cube.getPosition());
             this.scene.remove(cube.mesh);
-            this.cubes = this.cubes.filter(c => c !== cube);
         });
+        
+        // Update cubes array after clearing
+        this.cubes = this.cubes.filter(cube => !cubesCleared.includes(cube));
 
         // Update score
         if (pointsGained > 0) {
@@ -444,7 +465,7 @@ export class Game {
             newX += this.playerSpeed; // Move right
         }
 
-        // Keep player within bounds
+        // Keep player within bounds and aligned to grid
         newX = Math.max(-this.cols/2 + 0.5, Math.min(this.cols/2 - 0.5, newX));
         newZ = Math.max(-this.rows/2 + 0.5, Math.min(this.rows/2 - 0.5, newZ));
 
@@ -454,10 +475,10 @@ export class Game {
         this.player.position.set(newX, 0.5, newZ);
 
         // Check if any cube has rolled onto the player
-        const playerKey = `${Math.round(this.player.position.x)},${Math.round(this.player.position.z)}`;
+        const playerKey = `${Math.round(this.player.position.x - 0.5) + 0.5},${Math.round(this.player.position.z - 0.5) + 0.5}`;
         const isPlayerCrushed = this.cubes.some(cube => {
             const cubePos = cube.getPosition();
-            const cubeKey = `${Math.round(cubePos.x)},${Math.round(cubePos.z)}`;
+            const cubeKey = `${Math.round(cubePos.x - 0.5) + 0.5},${Math.round(cubePos.z - 0.5) + 0.5}`;
             return cubeKey === playerKey;
         });
 
@@ -548,7 +569,7 @@ export class Game {
                 if (!this.rollingCubes.has(cube)) {
                     const currentPos = cube.getPosition();
                     const targetPos = {
-                        x: Math.round(currentPos.x),
+                        x: currentPos.x,
                         y: currentPos.y,
                         z: Math.round(currentPos.z) + 1
                     };
@@ -559,9 +580,10 @@ export class Game {
                     let progress = 0;
                     const animate = () => {
                         if (progress < 1) {
-                            progress += 0.1;
+                            progress += 0.05; // Reduced from 0.1 to 0.05 for slower rolling
                             
-                            // Update position
+                            // Update position - maintain x alignment
+                            cube.mesh.position.x = currentPos.x;
                             cube.mesh.position.z = currentPos.z + (targetPos.z - currentPos.z) * progress;
                             
                             // Add rolling rotation
@@ -573,16 +595,20 @@ export class Game {
                             cube.mesh.position.set(targetPos.x, targetPos.y, targetPos.z);
                             cube.mesh.rotation.set(0, 0, 0);
                             this.rollingCubes.delete(cube);
+
+                            // Check if cube has rolled off the edge
+                            if (cube.getPosition().z > this.rows/2) {
+                                cube.startFalling();
+                            }
                         }
                     };
                     animate();
                 }
             });
 
-            // Remove cubes that have moved past the stage
+            // Remove cubes that have fallen off
             this.cubes = this.cubes.filter(cube => {
                 if (cube.getPosition().z > this.rows/2) {
-                    this.scene.remove(cube.mesh);
                     return false;
                 }
                 return true;
