@@ -21,9 +21,9 @@ export class Cube {
                 break;
             case 'forbidden':
                 material = new THREE.MeshPhongMaterial({ 
-                    color: 0xff0000,
-                    emissive: 0xff0000,
-                    emissiveIntensity: 0.5
+                    color: 0x000000,
+                    emissive: 0x000000,
+                    emissiveIntensity: 0.2
                 });
                 break;
             default:
@@ -43,7 +43,9 @@ export class Cube {
         const edges = new THREE.EdgesGeometry(geometry);
         const line = new THREE.LineSegments(
             edges,
-            new THREE.LineBasicMaterial({ color: 0x000000 })
+            new THREE.LineBasicMaterial({ 
+                color: this.type === 'forbidden' ? 0x404040 : 0x000000 
+            })
         );
         mesh.add(line);
 

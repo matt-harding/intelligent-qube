@@ -85,6 +85,90 @@ export class Game {
         });
     }
 
+    createPlayer() {
+        // Create a group to hold all player parts
+        this.player = new THREE.Group();
+
+        // Body material
+        const bodyMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xffffff, // White shirt
+            emissive: 0x222222,
+            emissiveIntensity: 0.2
+        });
+        const pantsMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0x000000, // Black pants
+            emissive: 0x111111,
+            emissiveIntensity: 0.2
+        });
+        const headMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0xffccaa, // Skin tone
+            emissive: 0x221100,
+            emissiveIntensity: 0.1
+        });
+
+        // Head
+        const head = new THREE.Mesh(
+            new THREE.BoxGeometry(0.3, 0.3, 0.3),
+            headMaterial
+        );
+        head.position.y = 0.8;
+        head.castShadow = true;
+
+        // Body
+        const body = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 0.6, 0.2),
+            bodyMaterial
+        );
+        body.position.y = 0.4;
+        body.castShadow = true;
+
+        // Legs
+        const leftLeg = new THREE.Mesh(
+            new THREE.BoxGeometry(0.15, 0.4, 0.15),
+            pantsMaterial
+        );
+        leftLeg.position.set(-0.1, 0.2, 0);
+        leftLeg.castShadow = true;
+
+        const rightLeg = new THREE.Mesh(
+            new THREE.BoxGeometry(0.15, 0.4, 0.15),
+            pantsMaterial
+        );
+        rightLeg.position.set(0.1, 0.2, 0);
+        rightLeg.castShadow = true;
+
+        // Arms
+        const leftArm = new THREE.Mesh(
+            new THREE.BoxGeometry(0.12, 0.4, 0.12),
+            bodyMaterial
+        );
+        leftArm.position.set(-0.26, 0.4, 0);
+        leftArm.castShadow = true;
+
+        const rightArm = new THREE.Mesh(
+            new THREE.BoxGeometry(0.12, 0.4, 0.12),
+            bodyMaterial
+        );
+        rightArm.position.set(0.26, 0.4, 0);
+        rightArm.castShadow = true;
+
+        // Add all parts to the player group
+        this.player.add(head);
+        this.player.add(body);
+        this.player.add(leftLeg);
+        this.player.add(rightLeg);
+        this.player.add(leftArm);
+        this.player.add(rightArm);
+
+        // Set initial position (y=0 to stand on surface)
+        this.player.position.set(0.5, 0, this.rows/2 - 1.5);
+        this.player.castShadow = true;
+        this.player.receiveShadow = true;
+
+        // Add the player to the scene
+        this.scene.add(this.player);
+    }
+
     initStage() {
         // Create stage base
         const stageGeometry = new THREE.BoxGeometry(this.cols * this.cubeSize, 0.5, this.rows * this.cubeSize);
@@ -110,7 +194,7 @@ export class Game {
         for (let z = -this.rows/2; z < this.rows/2; z++) {
             for (let x = -this.cols/2; x < this.cols/2; x++) {
                 const cell = new THREE.Mesh(cellGeometry, cellMaterial.clone());
-                cell.position.set(x + 0.5, 0, z + 0.5); // Added 0.5 to align with cubes
+                cell.position.set(x + 0.5, 0, z + 0.5);
                 cell.receiveShadow = true;
                 this.scene.add(cell);
                 this.gridCells.push(cell);
@@ -128,14 +212,8 @@ export class Game {
             }
         }
 
-        // Create player and align with grid
-        const playerGeometry = new THREE.BoxGeometry(this.cubeSize * 0.8, this.cubeSize * 1.5, this.cubeSize * 0.8);
-        const playerMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFFFF });
-        this.player = new THREE.Mesh(playerGeometry, playerMaterial);
-        this.player.position.set(0.5, 0.5, this.rows/2 - 1.5); // Adjusted to align with grid
-        this.player.castShadow = true;
-        this.player.receiveShadow = true;
-        this.scene.add(this.player);
+        // Create player
+        this.createPlayer();
     }
 
     setupControls() {
@@ -324,9 +402,40 @@ export class Game {
         this.advantageSpots.set(key, markers);
     }
 
+    createClearAnimation(position) {
+        const geometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
+        const material = new THREE.MeshPhongMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.8,
+            emissive: 0xffffff,
+            emissiveIntensity: 0.5
+        });
+        const animation = new THREE.Mesh(geometry, material);
+        animation.position.set(position.x, 0.01, position.z);
+        this.scene.add(animation);
+
+        // Animate the effect
+        let scale = 1;
+        const animate = () => {
+            if (scale <= 1.5) {
+                scale += 0.1;
+                animation.scale.set(scale, 1, scale);
+                animation.material.opacity = 0.8 * (1.5 - scale) / 0.5;
+                requestAnimationFrame(animate);
+            } else {
+                this.scene.remove(animation);
+                animation.geometry.dispose();
+                animation.material.dispose();
+            }
+        };
+        animate();
+    }
+
     clearMarkedCells() {
         let pointsGained = 0;
         const cubesCleared = [];
+        const cellsToAnimate = new Set();
 
         // Check normal marked cells
         this.cubes.forEach(cube => {
@@ -345,17 +454,34 @@ export class Game {
             if (isOnMarkedCell || isInAdvantageArea) {
                 if (cube.type === 'forbidden') {
                     this.handleForbiddenCube();
+                    cubesCleared.push(cube);
+                    cellsToAnimate.add(key);
                 } else {
                     cubesCleared.push(cube);
                     pointsGained += isInAdvantageArea ? 200 : 100;
+                    cellsToAnimate.add(key);
                     
                     if (cube.type === 'advantage' && isOnMarkedCell) {
                         const alignedX = Math.floor(pos.x) + 0.5;
                         const alignedZ = Math.floor(pos.z);
                         this.mark3x3Area(alignedX, alignedZ);
+                        
+                        // Add 3x3 area to animation
+                        for (let x = -1; x <= 1; x++) {
+                            for (let z = -1; z <= 1; z++) {
+                                const areaKey = `${alignedX + x},${alignedZ + z}`;
+                                cellsToAnimate.add(areaKey);
+                            }
+                        }
                     }
                 }
             }
+        });
+
+        // Create clear animations for all affected cells
+        cellsToAnimate.forEach(key => {
+            const [x, z] = key.split(',').map(Number);
+            this.createClearAnimation({ x, z });
         });
 
         // Remove cleared cubes with effect
@@ -469,10 +595,10 @@ export class Game {
         newX = Math.max(-this.cols/2 + 0.5, Math.min(this.cols/2 - 0.5, newX));
         newZ = Math.max(-this.rows/2 + 0.5, Math.min(this.rows/2 - 0.5, newZ));
 
-        // Update position
+        // Update position (keep y at 0 to stay on surface)
         this.playerPosition.x = newX;
         this.playerPosition.z = newZ;
-        this.player.position.set(newX, 0.5, newZ);
+        this.player.position.set(newX, 0, newZ);
 
         // Check if any cube has rolled onto the player
         const playerKey = `${Math.round(this.player.position.x - 0.5) + 0.5},${Math.round(this.player.position.z - 0.5) + 0.5}`;
@@ -493,18 +619,21 @@ export class Game {
         // Create death effect
         const deathEffect = () => {
             const particles = [];
-            const particleCount = 30;
+            const particleCount = 50;
+            const colors = [0xffffff, 0x000000, 0xffccaa]; // Colors matching player parts
 
             for (let i = 0; i < particleCount; i++) {
                 const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
                 const material = new THREE.MeshPhongMaterial({
-                    color: 0xff0000,
+                    color: colors[Math.floor(Math.random() * colors.length)],
                     transparent: true,
                     opacity: 1
                 });
                 const particle = new THREE.Mesh(geometry, material);
                 
+                // Distribute particles across player's height
                 particle.position.copy(this.player.position);
+                particle.position.y += Math.random() * 1.5; // Distribute across player height
                 
                 // Set random velocity
                 particle.velocity = new THREE.Vector3(
@@ -527,6 +656,8 @@ export class Game {
                 particles.forEach((particle, index) => {
                     particle.position.add(particle.velocity);
                     particle.velocity.y -= 0.01; // Add gravity
+                    particle.rotation.x += 0.1;
+                    particle.rotation.z += 0.1;
                     particle.material.opacity -= 0.02;
 
                     if (particle.material.opacity <= 0) {
