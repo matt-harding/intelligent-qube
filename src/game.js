@@ -5,11 +5,23 @@ export class Game {
     constructor() {
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ 
+            antialias: true,
+            shadowMap: {
+                enabled: true,
+                type: THREE.PCFSoftShadowMap
+            }
+        });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setClearColor(0x000000);
+        this.renderer.shadowMap.enabled = true;
         document.body.appendChild(this.renderer.domElement);
 
+        // UI elements
+        this.levelElement = document.getElementById('level');
+        this.scoreElement = document.getElementById('score');
+        this.rowsElement = document.getElementById('rows');
+        
         // Game state
         this.level = 1;
         this.score = 0;
@@ -18,27 +30,42 @@ export class Game {
         this.cubeSize = 1;
         this.playerPosition = { x: 0, z: this.rows/2 - 2 }; // Start player near the bottom
         this.markedCells = new Map(); // Map of "x,z" -> cell mesh
-        this.advantageSpots = new Set();
+        this.advantageSpots = new Map(); // Changed to Map to store 3x3 area markers
         this.cubes = [];
         this.gridCells = []; // Array of cell meshes
         this.moveTimer = 0;
-        this.moveInterval = 60; // Frames between cube movements
+        this.moveInterval = 120; // Doubled the interval between cube movements
         this.isGameOver = false;
         this.currentWave = 0;
         this.wavesPerLevel = 4;
         this.cubeSpeed = 0.05;
         this.advantageCubes = [];
         this.forbiddenCubes = [];
+        this.rollingCubes = new Set(); // Track cubes currently in rolling animation
+        this.playerMoveTimer = 0;
+        this.playerMoveInterval = 150; // Add delay between player movements
+        this.lastPlayerMove = { x: 0, z: 0 };
+        this.playerSpeed = 0.15; // Add player movement speed
 
-        // Setup camera position to match original game perspective
-        this.camera.position.set(0, 12, 20);
+        // Setup camera position to see more of the stage
+        this.camera.position.set(0, 15, 25);
         this.camera.lookAt(0, 0, 0);
 
         // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
         this.scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
-        directionalLight.position.set(-5, 10, 5);
+
+        // Main directional light with shadows
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(-5, 15, 5);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.camera.left = -20;
+        directionalLight.shadow.camera.right = 20;
+        directionalLight.shadow.camera.top = 20;
+        directionalLight.shadow.camera.bottom = -20;
+        directionalLight.shadow.camera.far = 40;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
         this.scene.add(directionalLight);
 
         // Initialize game
@@ -46,6 +73,7 @@ export class Game {
         this.setupControls();
         this.startLevel();
         this.animate();
+        this.updateUI();
 
         // Handle window resize
         window.addEventListener('resize', () => {
@@ -65,6 +93,7 @@ export class Game {
         });
         this.stage = new THREE.Mesh(stageGeometry, stageMaterial);
         this.stage.position.set(0, -0.25, 0);
+        this.stage.receiveShadow = true;
         this.scene.add(this.stage);
 
         // Create grid cells
@@ -79,6 +108,7 @@ export class Game {
             for (let x = -this.cols/2; x < this.cols/2; x++) {
                 const cell = new THREE.Mesh(cellGeometry, cellMaterial.clone());
                 cell.position.set(x + 0.5, 0, z + 0.5);
+                cell.receiveShadow = true;
                 this.scene.add(cell);
                 this.gridCells.push(cell);
             }
@@ -89,6 +119,8 @@ export class Game {
         const playerMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFFFF });
         this.player = new THREE.Mesh(playerGeometry, playerMaterial);
         this.player.position.set(0, 0.5, this.rows/2 - 2);
+        this.player.castShadow = true;
+        this.player.receiveShadow = true;
         this.scene.add(this.player);
     }
 
@@ -103,21 +135,24 @@ export class Game {
         };
 
         this.lastKeyPress = 0;
-        const KEY_DELAY = 200; // ms between key presses
+        const KEY_DELAY = 100; // Reduced delay for space and enter keys
 
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
             if (this.keys.hasOwnProperty(key)) {
                 this.keys[key] = true;
                 
-                const now = Date.now();
-                if (now - this.lastKeyPress > KEY_DELAY) {
-                    this.lastKeyPress = now;
-                    
-                    if (key === ' ') {  // Space key
-                        this.toggleMark();
-                    } else if (key === 'enter') {
-                        this.clearMarkedCells();
+                // Only apply delay to space and enter keys
+                if (key === ' ' || key === 'enter') {
+                    const now = Date.now();
+                    if (now - this.lastKeyPress > KEY_DELAY) {
+                        this.lastKeyPress = now;
+                        
+                        if (key === ' ') {
+                            this.toggleMark();
+                        } else if (key === 'enter') {
+                            this.clearMarkedCells();
+                        }
                     }
                 }
             }
@@ -226,28 +261,154 @@ export class Game {
         animate();
     }
 
+    updateUI() {
+        this.levelElement.textContent = `LEVEL ${this.level}`;
+        this.scoreElement.textContent = `SCORE ${this.score}`;
+        this.rowsElement.textContent = `ROWS ${this.rows}`;
+    }
+
+    flashScore() {
+        this.scoreElement.classList.remove('flash-text');
+        void this.scoreElement.offsetWidth; // Trigger reflow
+        this.scoreElement.classList.add('flash-text');
+    }
+
+    mark3x3Area(centerX, centerZ) {
+        const key = `${centerX},${centerZ}`;
+        const markers = [];
+
+        // Create 3x3 grid of markers
+        for (let x = -1; x <= 1; x++) {
+            for (let z = -1; z <= 1; z++) {
+                const markerX = centerX + x;
+                const markerZ = centerZ + z;
+                
+                // Skip if outside stage bounds
+                if (markerX < -this.cols/2 || markerX > this.cols/2 ||
+                    markerZ < -this.rows/2 || markerZ > this.rows/2) {
+                    continue;
+                }
+
+                const markerGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
+                const markerMaterial = new THREE.MeshPhongMaterial({
+                    color: 0x00ff00,
+                    transparent: true,
+                    opacity: 0.5,
+                    emissive: 0x00ff00,
+                    emissiveIntensity: 0.3
+                });
+                const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+                marker.position.set(markerX, 0.01, markerZ);
+                this.scene.add(marker);
+                markers.push(marker);
+            }
+        }
+
+        this.advantageSpots.set(key, markers);
+    }
+
     clearMarkedCells() {
+        let pointsGained = 0;
+        const cubesCleared = [];
+
+        // Check normal marked cells
         this.cubes.forEach(cube => {
             const pos = cube.getPosition();
             const key = `${Math.round(pos.x)},${Math.round(pos.z)}`;
-            if (this.markedCells.has(key)) {
+            
+            // Check if cube is on a marked cell or in a 3x3 advantage area
+            const isOnMarkedCell = this.markedCells.has(key);
+            const isInAdvantageArea = Array.from(this.advantageSpots.keys()).some(areaKey => {
+                const [centerX, centerZ] = areaKey.split(',').map(Number);
+                const dx = Math.abs(Math.round(pos.x) - centerX);
+                const dz = Math.abs(Math.round(pos.z) - centerZ);
+                return dx <= 1 && dz <= 1;
+            });
+
+            if (isOnMarkedCell || isInAdvantageArea) {
                 if (cube.type === 'forbidden') {
                     this.handleForbiddenCube();
                 } else {
-                    this.scene.remove(cube.mesh);
-                    this.score += 100;
-                    if (cube.type === 'advantage') {
-                        this.advantageSpots.add(key);
+                    cubesCleared.push(cube);
+                    pointsGained += isInAdvantageArea ? 200 : 100;
+                    
+                    if (cube.type === 'advantage' && isOnMarkedCell) {
+                        this.mark3x3Area(Math.round(pos.x), Math.round(pos.z));
                     }
                 }
             }
         });
 
-        // Remove all markers
-        this.markedCells.forEach(marker => {
-            this.scene.remove(marker);
+        // Remove cleared cubes with effect
+        cubesCleared.forEach(cube => {
+            this.createClearEffect(cube.getPosition());
+            this.scene.remove(cube.mesh);
+            this.cubes = this.cubes.filter(c => c !== cube);
         });
+
+        // Update score
+        if (pointsGained > 0) {
+            this.score += pointsGained;
+            this.updateUI();
+            this.flashScore();
+        }
+
+        // Clear markers
+        this.markedCells.forEach(marker => this.scene.remove(marker));
         this.markedCells.clear();
+    }
+
+    createClearEffect(position) {
+        const particles = [];
+        const particleCount = 20;
+
+        for (let i = 0; i < particleCount; i++) {
+            const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 1
+            });
+            const particle = new THREE.Mesh(geometry, material);
+            
+            // Set random initial position within cube bounds
+            particle.position.set(
+                position.x + (Math.random() - 0.5) * 0.5,
+                position.y + (Math.random() - 0.5) * 0.5,
+                position.z + (Math.random() - 0.5) * 0.5
+            );
+            
+            // Set random velocity
+            particle.velocity = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.2,
+                Math.random() * 0.2,
+                (Math.random() - 0.5) * 0.2
+            );
+
+            this.scene.add(particle);
+            particles.push(particle);
+        }
+
+        // Animate particles
+        const animate = () => {
+            if (particles.length === 0) return;
+
+            particles.forEach((particle, index) => {
+                particle.position.add(particle.velocity);
+                particle.material.opacity -= 0.02;
+
+                if (particle.material.opacity <= 0) {
+                    this.scene.remove(particle);
+                    particle.geometry.dispose();
+                    particle.material.dispose();
+                    particles.splice(index, 1);
+                }
+            });
+
+            requestAnimationFrame(animate);
+        };
+
+        animate();
     }
 
     handleForbiddenCube() {
@@ -262,36 +423,119 @@ export class Game {
     }
 
     updatePlayer() {
-        const moveSpeed = 1;
-        const newPosition = {
-            x: this.playerPosition.x,
-            z: this.playerPosition.z
-        };
+        if (this.isGameOver) return;
 
-        if (this.keys.w) newPosition.z -= moveSpeed;
-        if (this.keys.s) newPosition.z += moveSpeed;
-        if (this.keys.a) newPosition.x -= moveSpeed;
-        if (this.keys.d) newPosition.x += moveSpeed;
+        const currentX = this.player.position.x;
+        const currentZ = this.player.position.z;
+        let newX = currentX;
+        let newZ = currentZ;
 
-        // Check collision with cubes
-        const wouldCollide = this.cubes.some(cube => {
+        // Allow smooth movement in all directions
+        if (this.keys.w) {
+            newZ -= this.playerSpeed; // Move up
+        }
+        if (this.keys.s) {
+            newZ += this.playerSpeed; // Move down
+        }
+        if (this.keys.a) {
+            newX -= this.playerSpeed; // Move left
+        }
+        if (this.keys.d) {
+            newX += this.playerSpeed; // Move right
+        }
+
+        // Keep player within bounds
+        newX = Math.max(-this.cols/2 + 0.5, Math.min(this.cols/2 - 0.5, newX));
+        newZ = Math.max(-this.rows/2 + 0.5, Math.min(this.rows/2 - 0.5, newZ));
+
+        // Update position
+        this.playerPosition.x = newX;
+        this.playerPosition.z = newZ;
+        this.player.position.set(newX, 0.5, newZ);
+
+        // Check if any cube has rolled onto the player
+        const playerKey = `${Math.round(this.player.position.x)},${Math.round(this.player.position.z)}`;
+        const isPlayerCrushed = this.cubes.some(cube => {
             const cubePos = cube.getPosition();
-            return Math.round(cubePos.x) === Math.round(newPosition.x) &&
-                   Math.round(cubePos.z) === Math.round(newPosition.z);
+            const cubeKey = `${Math.round(cubePos.x)},${Math.round(cubePos.z)}`;
+            return cubeKey === playerKey;
         });
 
-        if (!wouldCollide) {
-            // Keep player within bounds
-            this.playerPosition.x = Math.max(-this.cols/2 + 0.5, Math.min(this.cols/2 - 0.5, newPosition.x));
-            this.playerPosition.z = Math.max(-this.rows/2 + 0.5, Math.min(this.rows/2 - 0.5, newPosition.z));
-
-            // Update player position
-            this.player.position.set(
-                Math.round(this.playerPosition.x),
-                0.5,
-                Math.round(this.playerPosition.z)
-            );
+        if (isPlayerCrushed) {
+            this.handlePlayerDeath();
         }
+    }
+
+    handlePlayerDeath() {
+        this.isGameOver = true;
+        
+        // Create death effect
+        const deathEffect = () => {
+            const particles = [];
+            const particleCount = 30;
+
+            for (let i = 0; i < particleCount; i++) {
+                const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+                const material = new THREE.MeshPhongMaterial({
+                    color: 0xff0000,
+                    transparent: true,
+                    opacity: 1
+                });
+                const particle = new THREE.Mesh(geometry, material);
+                
+                particle.position.copy(this.player.position);
+                
+                // Set random velocity
+                particle.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.3,
+                    Math.random() * 0.3,
+                    (Math.random() - 0.5) * 0.3
+                );
+
+                this.scene.add(particle);
+                particles.push(particle);
+            }
+
+            // Hide player
+            this.player.visible = false;
+
+            // Animate particles
+            const animate = () => {
+                if (particles.length === 0 || !this.isGameOver) return;
+
+                particles.forEach((particle, index) => {
+                    particle.position.add(particle.velocity);
+                    particle.velocity.y -= 0.01; // Add gravity
+                    particle.material.opacity -= 0.02;
+
+                    if (particle.material.opacity <= 0) {
+                        this.scene.remove(particle);
+                        particle.geometry.dispose();
+                        particle.material.dispose();
+                        particles.splice(index, 1);
+                    }
+                });
+
+                requestAnimationFrame(animate);
+            };
+
+            animate();
+        };
+
+        deathEffect();
+        
+        // Display game over message
+        const gameOverDiv = document.createElement('div');
+        gameOverDiv.style.position = 'fixed';
+        gameOverDiv.style.top = '50%';
+        gameOverDiv.style.left = '50%';
+        gameOverDiv.style.transform = 'translate(-50%, -50%)';
+        gameOverDiv.style.color = 'red';
+        gameOverDiv.style.fontSize = '48px';
+        gameOverDiv.style.fontFamily = 'monospace';
+        gameOverDiv.style.textShadow = '2px 2px 4px rgba(0,0,0,0.5)';
+        gameOverDiv.textContent = 'GAME OVER';
+        document.body.appendChild(gameOverDiv);
     }
 
     updateCubes() {
@@ -299,14 +543,40 @@ export class Game {
         if (this.moveTimer >= this.moveInterval) {
             this.moveTimer = 0;
             
-            // Move cubes one cell at a time
+            // Move cubes one cell at a time with rolling animation
             this.cubes.forEach(cube => {
-                const currentPos = cube.getPosition();
-                cube.mesh.position.set(
-                    Math.round(currentPos.x),
-                    currentPos.y,
-                    Math.round(currentPos.z) + 1
-                );
+                if (!this.rollingCubes.has(cube)) {
+                    const currentPos = cube.getPosition();
+                    const targetPos = {
+                        x: Math.round(currentPos.x),
+                        y: currentPos.y,
+                        z: Math.round(currentPos.z) + 1
+                    };
+
+                    this.rollingCubes.add(cube);
+                    
+                    // Create rolling animation
+                    let progress = 0;
+                    const animate = () => {
+                        if (progress < 1) {
+                            progress += 0.1;
+                            
+                            // Update position
+                            cube.mesh.position.z = currentPos.z + (targetPos.z - currentPos.z) * progress;
+                            
+                            // Add rolling rotation
+                            cube.mesh.rotation.x = -Math.PI * 2 * progress;
+                            
+                            requestAnimationFrame(animate);
+                        } else {
+                            // Snap to final position and reset rotation
+                            cube.mesh.position.set(targetPos.x, targetPos.y, targetPos.z);
+                            cube.mesh.rotation.set(0, 0, 0);
+                            this.rollingCubes.delete(cube);
+                        }
+                    };
+                    animate();
+                }
             });
 
             // Remove cubes that have moved past the stage
@@ -326,6 +596,7 @@ export class Game {
                 } else {
                     this.level++;
                     this.startLevel();
+                    this.updateUI();
                 }
             }
         }
@@ -340,9 +611,10 @@ export class Game {
 
     animate() {
         requestAnimationFrame(() => this.animate());
-        this.updatePlayer();
-        this.updateCubes();
-        this.checkGameOver();
+        if (!this.isGameOver) {
+            this.updatePlayer();
+            this.updateCubes();
+        }
         this.renderer.render(this.scene, this.camera);
     }
 } 

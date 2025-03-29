@@ -48,6 +48,10 @@ export class Cube {
             this.position.z
         );
 
+        // Add shadow casting
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+
         // Add wireframe outline
         const wireframe = new THREE.LineSegments(
             new THREE.EdgesGeometry(geometry),

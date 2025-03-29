@@ -12,3 +12,27 @@ body {
 canvas {
   display: block;
 }
+
+#game-ui {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  color: white;
+  font-family: monospace;
+  font-size: 24px;
+  text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+#game-ui div {
+  margin-bottom: 10px;
+}
+
+.flash-text {
+  animation: flash 0.5s ease-out;
+}
+
+@keyframes flash {
+  0% { transform: scale(1.2); color: #ff0; }
+  100% { transform: scale(1); color: #fff; }
+}
