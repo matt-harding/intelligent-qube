@@ -330,7 +330,7 @@ export class Game {
             'd': false,
             ' ': false,  // Space key
             'enter': false,
-            'delete': false
+            'backspace': false
         };
 
         this.lastKeyPress = 0;
@@ -341,8 +341,8 @@ export class Game {
             if (this.keys.hasOwnProperty(key)) {
                 this.keys[key] = true;
                 
-                // Only apply delay to space, enter, and delete keys
-                if (key === ' ' || key === 'enter' || key === 'delete') {
+                // Only apply delay to space, enter, and backspace keys
+                if (key === ' ' || key === 'enter' || key === 'backspace') {
                     const now = Date.now();
                     if (now - this.lastKeyPress > KEY_DELAY) {
                         this.lastKeyPress = now;
@@ -351,7 +351,7 @@ export class Game {
                             this.toggleMark();
                         } else if (key === 'enter') {
                             this.clearMarkedCells();
-                        } else if (key === 'delete') {
+                        } else if (key === 'backspace') {
                             if (this.advantageSpots.size > 0) {
                                 this.triggerAllAdvantageSpots();
                             }
@@ -951,7 +951,7 @@ export class Game {
             'WASD - Move',
             'SPACE - Mark/Unmark Cell',
             'ENTER - Clear Marked Cells',
-            'DELETE - Trigger Green Areas'
+            'BACKSPACE - Trigger Green Areas'
         ];
 
         controls.forEach((text, index) => {
