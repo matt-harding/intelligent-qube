@@ -217,17 +217,17 @@ export class Game {
         let newX = currentX;
         let newZ = currentZ;
 
-        // Allow smooth movement in all directions
-        if (this.keys.w) {
+        // Allow smooth movement in all directions using both WASD and arrow keys
+        if (this.keys.w || this.keys.arrowup) {
             newZ -= this.playerSpeed; // Move up
         }
-        if (this.keys.s) {
+        if (this.keys.s || this.keys.arrowdown) {
             newZ += this.playerSpeed; // Move down
         }
-        if (this.keys.a) {
+        if (this.keys.a || this.keys.arrowleft) {
             newX -= this.playerSpeed; // Move left
         }
-        if (this.keys.d) {
+        if (this.keys.d || this.keys.arrowright) {
             newX += this.playerSpeed; // Move right
         }
 
@@ -328,29 +328,30 @@ export class Game {
             'a': false,
             's': false,
             'd': false,
+            'arrowup': false,
+            'arrowdown': false,
+            'arrowleft': false,
+            'arrowright': false,
             ' ': false,  // Space key
-            'enter': false,
             'backspace': false
         };
 
         this.lastKeyPress = 0;
-        const KEY_DELAY = 100; // Reduced delay for space and enter keys
+        const KEY_DELAY = 100;
 
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
             if (this.keys.hasOwnProperty(key)) {
                 this.keys[key] = true;
                 
-                // Only apply delay to space, enter, and backspace keys
-                if (key === ' ' || key === 'enter' || key === 'backspace') {
+                // Only apply delay to space and backspace keys
+                if (key === ' ' || key === 'backspace') {
                     const now = Date.now();
                     if (now - this.lastKeyPress > KEY_DELAY) {
                         this.lastKeyPress = now;
                         
                         if (key === ' ') {
                             this.toggleMark();
-                        } else if (key === 'enter') {
-                            this.clearMarkedCells();
                         } else if (key === 'backspace') {
                             if (this.advantageSpots.size > 0) {
                                 this.triggerAllAdvantageSpots();
@@ -410,64 +411,104 @@ export class Game {
     }
 
     toggleMark() {
-        // Get the player's current grid position
-        const playerX = Math.floor(this.player.position.x);
-        const playerZ = Math.floor(this.player.position.z);
-        const gridX = playerX + 0.5;
-        const gridZ = playerZ;
-        const key = `${gridX},${gridZ}`;
-
-        // Don't allow marking if there's already a mark
+        // If a cell is already marked, activate it
         if (this.markedCells.size > 0) {
-            // Remove existing mark
-            for (const [_, marker] of this.markedCells) {
-                this.scene.remove(marker);
+            const [key, marker] = Array.from(this.markedCells.entries())[0]; // Only one mark allowed
+            const [gridX, gridZ] = key.split(',').map(Number);
+    
+            // Create animation for the cell
+            this.createClearAnimation({ x: gridX, z: gridZ });
+    
+            // Check for cubes to clear
+            const cubesCleared = [];
+            let pointsGained = 0;
+    
+            this.cubes.forEach(cube => {
+                const pos = cube.getPosition();
+                const cubeKey = `${Math.floor(pos.x) + 0.5},${Math.floor(pos.z)}`;
+    
+                if (cubeKey === key) {
+                    if (cube.type === 'forbidden') {
+                        this.handleForbiddenCube();
+                    } else {
+                        pointsGained += 100;
+    
+                        if (cube.type === 'advantage') {
+                            const alignedX = Math.floor(pos.x) + 0.5;
+                            const alignedZ = Math.floor(pos.z);
+                            this.createAdvantageMarker(alignedX, alignedZ);
+                        }
+                    }
+                    cubesCleared.push(cube);
+                }
+            });
+    
+            // Clear cubes
+            cubesCleared.forEach(cube => {
+                this.createClearEffect(cube.getPosition());
+                this.scene.remove(cube.mesh);
+            });
+    
+            // Update state
+            this.cubes = this.cubes.filter(cube => !cubesCleared.includes(cube));
+            if (pointsGained > 0) {
+                this.score += pointsGained;
+                this.updateUI();
+                this.flashScore();
             }
+    
+            // Remove the mark
+            this.scene.remove(marker);
             this.markedCells.clear();
-            return;
+    
+        } else {
+            // Mark a new cell under the player
+            const playerX = Math.floor(this.player.position.x);
+            const playerZ = Math.floor(this.player.position.z);
+            const gridX = playerX + 0.5;
+            const gridZ = playerZ;
+            const key = `${gridX},${gridZ}`;
+    
+            // Create and store the mark
+            const markerGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
+            const markerMaterial = new THREE.MeshPhongMaterial({
+                color: 0xff0000,
+                transparent: true,
+                opacity: 0.7,
+                emissive: 0xff0000,
+                emissiveIntensity: 0.5
+            });
+            const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.position.set(gridX, 0.01, gridZ);
+            this.scene.add(marker);
+            this.markedCells.set(key, marker);
+    
+            // Flash feedback
+            const flashGeometry = new THREE.BoxGeometry(this.cubeSize, 0.2, this.cubeSize);
+            const flashMaterial = new THREE.MeshPhongMaterial({
+                color: 0xff0000,
+                transparent: true,
+                opacity: 0.3
+            });
+            const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+            flash.position.copy(marker.position);
+            this.scene.add(flash);
+    
+            const animate = () => {
+                if (flash.material.opacity > 0) {
+                    flash.material.opacity -= 0.02;
+                    flash.position.y += 0.02;
+                    requestAnimationFrame(animate);
+                } else {
+                    this.scene.remove(flash);
+                    flash.geometry.dispose();
+                    flash.material.dispose();
+                }
+            };
+            animate();
         }
-
-        // Add new mark
-        const markerGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
-        const markerMaterial = new THREE.MeshPhongMaterial({
-            color: 0xff0000,
-            transparent: true,
-            opacity: 0.7,
-            emissive: 0xff0000,
-            emissiveIntensity: 0.5
-        });
-        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-        marker.position.set(gridX, 0.01, gridZ);
-        this.scene.add(marker);
-        this.markedCells.set(key, marker);
-
-        // Add visual feedback
-        const flashGeometry = new THREE.BoxGeometry(this.cubeSize, 0.2, this.cubeSize);
-        const flashMaterial = new THREE.MeshPhongMaterial({
-            color: 0xff0000,
-            transparent: true,
-            opacity: 0.3
-        });
-        const flash = new THREE.Mesh(flashGeometry, flashMaterial);
-        flash.position.copy(marker.position);
-        this.scene.add(flash);
-
-        // Animate the flash effect
-        const startOpacity = 0.3;
-        const animate = () => {
-            if (flash.material.opacity > 0) {
-                flash.material.opacity -= 0.02;
-                flash.position.y += 0.02;
-                requestAnimationFrame(animate);
-            } else {
-                this.scene.remove(flash);
-                flash.geometry.dispose();
-                flash.material.dispose();
-            }
-        };
-        animate();
     }
-
+    
     triggerAllAdvantageSpots() {
         if (this.advantageSpots.size === 0) return;
 
@@ -586,40 +627,6 @@ export class Game {
         this.scoreElement.classList.add('flash-text');
     }
 
-    mark3x3Area(centerX, centerZ) {
-        const key = `${centerX},${centerZ}`;
-        const markers = [];
-
-        // Create 3x3 grid of markers
-        for (let x = -1; x <= 1; x++) {
-            for (let z = -1; z <= 1; z++) {
-                const markerX = centerX + x;
-                const markerZ = centerZ + z;
-                
-                // Skip if outside stage bounds
-                if (markerX < -this.cols/2 || markerX > this.cols/2 ||
-                    markerZ < -this.rows/2 || markerZ > this.rows/2) {
-                    continue;
-                }
-
-                const markerGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
-                const markerMaterial = new THREE.MeshPhongMaterial({
-                    color: 0x00ff00,
-                    transparent: true,
-                    opacity: 0.5,
-                    emissive: 0x00ff00,
-                    emissiveIntensity: 0.3
-                });
-                const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-                marker.position.set(markerX, 0.01, markerZ);
-                this.scene.add(marker);
-                markers.push(marker);
-            }
-        }
-
-        this.advantageSpots.set(key, markers);
-    }
-
     createClearAnimation(position) {
         const geometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
         const material = new THREE.MeshPhongMaterial({
@@ -648,63 +655,6 @@ export class Game {
             }
         };
         animate();
-    }
-
-    clearMarkedCells() {
-        let pointsGained = 0;
-        const cubesCleared = [];
-        const cellsToAnimate = new Set();
-
-        // Check marked cells
-        this.cubes.forEach(cube => {
-            const pos = cube.getPosition();
-            const key = `${Math.floor(pos.x) + 0.5},${Math.floor(pos.z)}`;
-            
-            if (this.markedCells.has(key)) {
-                if (cube.type === 'forbidden') {
-                    this.handleForbiddenCube();
-                    cubesCleared.push(cube);
-                    cellsToAnimate.add(key);
-                } else {
-                    cubesCleared.push(cube);
-                    pointsGained += 100;
-                    cellsToAnimate.add(key);
-                    
-                    // If we clear an advantage cube, create its marker
-                    if (cube.type === 'advantage') {
-                        const alignedX = Math.floor(pos.x) + 0.5;
-                        const alignedZ = Math.floor(pos.z);
-                        this.createAdvantageMarker(alignedX, alignedZ);
-                    }
-                }
-            }
-        });
-
-        // Remove cleared cubes
-        cubesCleared.forEach(cube => {
-            this.createClearEffect(cube.getPosition());
-            this.scene.remove(cube.mesh);
-        });
-        
-        // Update cubes array
-        this.cubes = this.cubes.filter(cube => !cubesCleared.includes(cube));
-
-        // Create clear animations
-        cellsToAnimate.forEach(key => {
-            const [x, z] = key.split(',').map(Number);
-            this.createClearAnimation({ x, z });
-        });
-
-        // Update score
-        if (pointsGained > 0) {
-            this.score += pointsGained;
-            this.updateUI();
-            this.flashScore();
-        }
-
-        // Clear markers
-        this.markedCells.forEach(marker => this.scene.remove(marker));
-        this.markedCells.clear();
     }
 
     createClearEffect(position) {
@@ -763,11 +713,71 @@ export class Game {
     handleForbiddenCube() {
         this.score -= 1000;
         this.rows--;
+
         // Update stage size
-        const stage = this.scene.children.find(child => child.geometry.type === 'BoxGeometry');
-        if (stage) {
-            stage.geometry.dispose();
-            stage.geometry = new THREE.BoxGeometry(this.cols * this.cubeSize, 0.5, this.rows * this.cubeSize);
+        const newStageGeometry = new THREE.BoxGeometry(this.cols * this.cubeSize, 0.5, this.rows * this.cubeSize);
+        this.stage.geometry.dispose();
+        this.stage.geometry = newStageGeometry;
+
+        // Update stage position to keep it centered
+        this.stage.position.set(0, -0.25, 0);
+
+        // Remove all existing grid cells and their borders
+        const toRemove = [];
+        this.scene.traverse((object) => {
+            if (object instanceof THREE.Mesh && object !== this.stage && 
+                (object.material.opacity === 0.5 || // Grid cells
+                 object instanceof THREE.LineSegments)) { // Grid borders
+                toRemove.push(object);
+            }
+        });
+        
+        toRemove.forEach(obj => {
+            this.scene.remove(obj);
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+        });
+        
+        this.gridCells = [];
+
+        // Recreate grid cells for new stage size
+        const cellGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
+        const cellMaterial = new THREE.MeshPhongMaterial({
+            color: 0x808080,
+            transparent: true,
+            opacity: 0.5
+        });
+
+        // Adjust grid cell positions to align with new stage size
+        for (let z = -this.rows/2; z < this.rows/2; z++) {
+            for (let x = -this.cols/2; x < this.cols/2; x++) {
+                const cell = new THREE.Mesh(cellGeometry, cellMaterial.clone());
+                cell.position.set(x + 0.5, 0, z + 0.5);
+                cell.receiveShadow = true;
+                this.scene.add(cell);
+                this.gridCells.push(cell);
+
+                // Add border
+                const borderGeometry = new THREE.EdgesGeometry(cellGeometry);
+                const borderMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0x404040,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const border = new THREE.LineSegments(borderGeometry, borderMaterial);
+                border.position.copy(cell.position);
+                this.scene.add(border);
+            }
+        }
+
+        // Update UI
+        this.updateUI();
+        this.flashScore();
+
+        // Check if game should end due to too few rows
+        if (this.rows < 5) {  // Minimum playable rows
+            this.isGameOver = true;
+            this.handlePlayerDeath();
         }
     }
 
@@ -917,13 +927,6 @@ export class Game {
         }
     }
 
-    checkGameOver() {
-        // Check if player has fallen off the stage
-        if (this.playerPosition.z < -this.rows/2) {
-            this.isGameOver = true;
-        }
-    }
-
     animate() {
         requestAnimationFrame(() => this.animate());
         if (!this.isGameOver) {
@@ -948,9 +951,8 @@ export class Game {
 
         const controls = [
             'Controls:',
-            'WASD - Move',
-            'SPACE - Mark/Unmark Cell',
-            'ENTER - Clear Marked Cells',
+            'WASD/Arrows - Move',
+            'SPACE - Mark/Activate Cell',
             'BACKSPACE - Trigger Green Areas'
         ];
 
