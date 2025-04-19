@@ -680,24 +680,82 @@ export class Game {
         animate();
     }
 
-    handleForbiddenCube() {
-        this.score -= 1000;
+    finishStageShrink() {
         this.rows--;
     
-        // Shift the stage back so the far rows stay in place
         const zOffset = this.cubeSize / 2;
     
-        // Update stage geometry with new row count
         const newStageGeometry = new THREE.BoxGeometry(this.cols * this.cubeSize, 0.5, this.rows * this.cubeSize);
         this.stage.geometry.dispose();
         this.stage.geometry = newStageGeometry;
     
-        // Move the stage back so the rest stays in place visually
         this.stage.position.z -= zOffset;
     
-        // Rebuild gridCells array and potentially re-layout cubes
-        this.gridCells = [];
+        // Optional: regenerate grid if needed
+        // this.gridCells = [];
     
+        if (this.rows < 5) {
+            this.isGameOver = true;
+            this.handlePlayerDeath();
+        }
+    }
+    
+
+    animateRowFallAway(frontRowZ) {
+        const fallDuration = 1000; // in ms
+        const fallDistance = 5;
+    
+        // Collect objects in the front row
+        const cubesToRemove = this.cubes.filter(cube => Math.abs(cube.position.z - frontRowZ) < 0.01);
+        const gridCellsToRemove = this.gridCells.filter(cell => Math.abs(cell.position.z - frontRowZ) < 0.01);
+    
+        // Animate fall
+        const startTime = performance.now();
+    
+        const animateFall = (time) => {
+            const elapsed = time - startTime;
+            const progress = Math.min(elapsed / fallDuration, 1);
+            const yOffset = -fallDistance * progress;
+    
+            // Move cubes and cells down
+            for (const cube of cubesToRemove) {
+                cube.position.y = yOffset;
+            }
+            for (const cell of gridCellsToRemove) {
+                cell.position.y = yOffset;
+            }
+    
+            if (progress < 1) {
+                requestAnimationFrame(animateFall);
+            } else {
+                // Cleanup after animation
+                for (const cube of cubesToRemove) {
+                    this.scene.remove(cube);
+                    cube.geometry.dispose();
+                    cube.material.dispose();
+                    this.cubes.splice(this.cubes.indexOf(cube), 1);
+                }
+                for (const cell of gridCellsToRemove) {
+                    this.scene.remove(cell);
+                    cell.geometry.dispose();
+                    cell.material.dispose();
+                    this.gridCells.splice(this.gridCells.indexOf(cell), 1);
+                }
+    
+                // Now update the stage
+                this.finishStageShrink();
+            }
+        };
+    
+        requestAnimationFrame(animateFall);
+    }
+
+    handleForbiddenCube() {
+        this.score -= 1000;
+
+        const frontRowZ = this.stage.position.z + this.rows * this.cubeSize / 2 - this.cubeSize / 2;
+        this.animateRowFallAway(frontRowZ);
+        
         // Update UI
         this.updateUI();
         this.flashScore();
