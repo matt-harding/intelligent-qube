@@ -288,36 +288,6 @@ export class Game {
         this.stage.receiveShadow = true;
         this.scene.add(this.stage);
 
-        // Create grid cells with borders
-        const cellGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
-        const cellMaterial = new THREE.MeshPhongMaterial({
-            color: 0x808080,
-            transparent: true,
-            opacity: 0.5
-        });
-
-        // Adjust grid cell positions to align with cubes
-        for (let z = -this.rows/2; z < this.rows/2; z++) {
-            for (let x = -this.cols/2; x < this.cols/2; x++) {
-                const cell = new THREE.Mesh(cellGeometry, cellMaterial.clone());
-                cell.position.set(x + 0.5, 0, z + 0.5);
-                cell.receiveShadow = true;
-                this.scene.add(cell);
-                this.gridCells.push(cell);
-
-                // Add border
-                const borderGeometry = new THREE.EdgesGeometry(cellGeometry);
-                const borderMaterial = new THREE.LineBasicMaterial({ 
-                    color: 0x404040,
-                    transparent: true,
-                    opacity: 0.8
-                });
-                const border = new THREE.LineSegments(borderGeometry, borderMaterial);
-                border.position.copy(cell.position);
-                this.scene.add(border);
-            }
-        }
-
         // Create player
         this.createPlayer();
     }
@@ -713,69 +683,27 @@ export class Game {
     handleForbiddenCube() {
         this.score -= 1000;
         this.rows--;
-
-        // Update stage size
+    
+        // Shift the stage back so the far rows stay in place
+        const zOffset = this.cubeSize / 2;
+    
+        // Update stage geometry with new row count
         const newStageGeometry = new THREE.BoxGeometry(this.cols * this.cubeSize, 0.5, this.rows * this.cubeSize);
         this.stage.geometry.dispose();
         this.stage.geometry = newStageGeometry;
-
-        // Update stage position to keep it centered
-        this.stage.position.set(0, -0.25, 0);
-
-        // Remove all existing grid cells and their borders
-        const toRemove = [];
-        this.scene.traverse((object) => {
-            if (object instanceof THREE.Mesh && object !== this.stage && 
-                (object.material.opacity === 0.5 || // Grid cells
-                 object instanceof THREE.LineSegments)) { // Grid borders
-                toRemove.push(object);
-            }
-        });
-        
-        toRemove.forEach(obj => {
-            this.scene.remove(obj);
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
-        });
-        
+    
+        // Move the stage back so the rest stays in place visually
+        this.stage.position.z -= zOffset;
+    
+        // Rebuild gridCells array and potentially re-layout cubes
         this.gridCells = [];
-
-        // Recreate grid cells for new stage size
-        const cellGeometry = new THREE.BoxGeometry(this.cubeSize, 0.1, this.cubeSize);
-        const cellMaterial = new THREE.MeshPhongMaterial({
-            color: 0x808080,
-            transparent: true,
-            opacity: 0.5
-        });
-
-        // Adjust grid cell positions to align with new stage size
-        for (let z = -this.rows/2; z < this.rows/2; z++) {
-            for (let x = -this.cols/2; x < this.cols/2; x++) {
-                const cell = new THREE.Mesh(cellGeometry, cellMaterial.clone());
-                cell.position.set(x + 0.5, 0, z + 0.5);
-                cell.receiveShadow = true;
-                this.scene.add(cell);
-                this.gridCells.push(cell);
-
-                // Add border
-                const borderGeometry = new THREE.EdgesGeometry(cellGeometry);
-                const borderMaterial = new THREE.LineBasicMaterial({ 
-                    color: 0x404040,
-                    transparent: true,
-                    opacity: 0.8
-                });
-                const border = new THREE.LineSegments(borderGeometry, borderMaterial);
-                border.position.copy(cell.position);
-                this.scene.add(border);
-            }
-        }
-
+    
         // Update UI
         this.updateUI();
         this.flashScore();
-
+    
         // Check if game should end due to too few rows
-        if (this.rows < 5) {  // Minimum playable rows
+        if (this.rows < 5) {
             this.isGameOver = true;
             this.handlePlayerDeath();
         }
